@@ -1,0 +1,10 @@
+# Nothing personal lives in this repo by design — saved people, your API key,
+# location, and settings are stored in the browser's localStorage, not in files.
+# These patterns are a safety net in case a people-export JSON is ever saved here.
+astrolabe-people*.json
+*people-export*.json
+*.local.json
+
+node_modules/
+Thumbs.db
+.DS_Store

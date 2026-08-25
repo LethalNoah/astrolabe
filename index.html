@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astrolabe — Living Sky Chart</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='80' font-size='80' fill='%23e8c96a'%3E☉%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="stars"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">✦</div>
+    <div class="brand-text">
+      <h1>Astrolabe</h1>
+      <span class="brand-sub">living sky · geocentric</span>
+    </div>
+  </div>
+
+  <nav class="modes" id="modeNav">
+    <button class="mode-btn active" data-mode="now" title="The sky right now (or any moment) at your location">Sky</button>
+    <button class="mode-btn" data-mode="natal" title="Birth chart for a saved person">Natal</button>
+    <button class="mode-btn" data-mode="transits" title="Current sky around a birth chart">Transits</button>
+    <button class="mode-btn" data-mode="synastry" title="Two people's charts compared">Synastry</button>
+  </nav>
+
+  <div class="top-right">
+    <button id="locBtn" class="chip chip-loc" title="Chart location (houses & angles depend on it)">
+      <span class="loc-ico">◎</span><span id="locLabel">0.00°, 0.00°</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section id="wheelWrap">
+    <div class="wheel-hud hud-tl" id="modeInfo"></div>
+    <div class="wheel-hud hud-tr">
+      <button class="chip chip-toggle" id="chipClassic" title="Show only the seven traditional bodies">Classic 7</button>
+      <button class="chip chip-toggle" id="chipMinor" title="Show minor aspects (semi-sextile, quintile, quincunx…)">Minor aspects</button>
+      <button class="chip" id="chipPng" title="Save the wheel as a PNG image">⬇ PNG</button>
+    </div>
+    <div class="wheel-hud hud-bl" id="patternHud"></div>
+    <svg id="wheel" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="tooltip" class="tooltip" hidden></div>
+  </section>
+
+  <aside id="panel">
+    <button id="panelWide" title="Widen the panel for comfortable reading">⇤</button>
+    <button id="panelToggle" title="Hide / show the side panel">▶</button>
+    <div class="tabs" id="tabBar">
+      <button class="tab active" data-tab="positions" title="Planetary positions">Bodies</button>
+      <button class="tab" data-tab="aspects" title="Aspect list">Aspects</button>
+      <button class="tab" data-tab="explore" title="Details on whatever you click">Explore</button>
+      <button class="tab" data-tab="reading" title="Chart readings">Reading</button>
+      <button class="tab" data-tab="people" title="Saved birth charts">People</button>
+      <button class="tab" data-tab="settings" title="Options">⚙</button>
+    </div>
+    <div class="tabpanes">
+      <div class="tabpane active" id="tab-positions"></div>
+      <div class="tabpane" id="tab-aspects"></div>
+      <div class="tabpane" id="tab-explore"></div>
+      <div class="tabpane" id="tab-reading"></div>
+      <div class="tabpane" id="tab-people"></div>
+      <div class="tabpane" id="tab-settings"></div>
+    </div>
+  </aside>
+</main>
+
+<footer id="timebar">
+  <div class="tb-group tb-datetime">
+    <input type="datetime-local" id="dtInput" step="60">
+    <select id="tzSelect" title="Timezone the date/time above is read in"></select>
+    <button id="btnNow" class="btn btn-gold" title="Jump to the present moment">Now</button>
+  </div>
+
+  <div class="tb-group tb-steps">
+    <button class="btn step" data-step="-31557600">−Y</button>
+    <button class="btn step" data-step="-2629800">−M</button>
+    <button class="btn step" data-step="-86400">−D</button>
+    <button class="btn step" data-step="-3600">−H</button>
+    <button class="btn step" data-step="3600">+H</button>
+    <button class="btn step" data-step="86400">+D</button>
+    <button class="btn step" data-step="2629800">+M</button>
+    <button class="btn step" data-step="31557600">+Y</button>
+  </div>
+
+  <div class="tb-group tb-play">
+    <button class="btn play" id="btnPlayRev" title="Play backwards">◀</button>
+    <button class="btn play" id="btnPlayFwd" title="Play forwards">▶</button>
+    <select id="speedSel" title="Playback speed">
+      <option value="1">real time</option>
+      <option value="60">1 min / s</option>
+      <option value="3600" selected>1 hour / s</option>
+      <option value="21600">6 hours / s</option>
+      <option value="86400">1 day / s</option>
+      <option value="604800">1 week / s</option>
+      <option value="2629800">1 month / s</option>
+      <option value="31557600">1 year / s</option>
+    </select>
+  </div>
+
+  <div class="tb-group tb-scrub">
+    <select id="scrubRange" title="How far the scrub bar reaches">
+      <option value="43200">± 12 h</option>
+      <option value="302400">± 3.5 d</option>
+      <option value="1296000" selected>± 15 d</option>
+      <option value="15778800">± 6 mo</option>
+      <option value="157788000">± 5 y</option>
+      <option value="1577880000">± 50 y</option>
+    </select>
+    <input type="range" id="scrub" min="-1000" max="1000" value="0" step="1">
+  </div>
+</footer>
+
+<div id="locModal" class="modal" hidden>
+  <div class="modal-card">
+    <h3>Chart location</h3>
+    <p class="muted small">Houses, the Ascendant, and day/night sect depend on where on Earth the chart is cast.</p>
+    <div class="loc-search-row">
+      <input type="text" id="locSearch" placeholder="Search a city… (needs internet)">
+      <button class="btn" id="locSearchBtn">Search</button>
+    </div>
+    <div id="locResults" class="loc-results"></div>
+    <div class="loc-manual">
+      <label>Latitude <input type="number" id="locLat" step="0.0001" min="-89.9" max="89.9"></label>
+      <label>Longitude <input type="number" id="locLon" step="0.0001" min="-180" max="180"></label>
+      <label>Label <input type="text" id="locName" placeholder="optional name"></label>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="locCancel">Cancel</button>
+      <button class="btn btn-gold" id="locApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/vendor/astronomy.browser.min.js"></script>
+<script src="js/vendor/anthropic.browser.js"></script>
+<script src="js/astro-data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/interpret.js"></script>
+<script src="js/wheel.js"></script>
+<script src="js/people.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
