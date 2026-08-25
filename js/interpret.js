@@ -296,27 +296,43 @@
 
     if (kind === 'natal') {
       const person = ctx.person;
+      const timeKnown = !person || person.timeKnown !== false;
       h += `<h3>${person ? esc(person.name) + '’s Chart' : 'Natal Chart'}</h3>`;
-      h += `<p>${D.SECT_INFO[chart.sect]}</p>`;
+      if (!timeKnown) {
+        h += `<p class="small muted"><b>Birth time unknown</b> — the chart is cast for noon. Signs, aspects, and dignities hold across the day; the Ascendant, houses, sect, and lots need a time, so they are left out here.</p>`;
+        const mspan = moonSpanForDay(person);
+        if (mspan && mspan.changed) h += `<p class="small muted">The Moon changed signs that day — it began in ${mspan.start} and ended in ${mspan.end}, so its sign depends on the hour of birth. Both are read below.</p>`;
+      }
+      if (timeKnown) h += `<p>${D.SECT_INFO[chart.sect]}</p>`;
       const sun = chart.planets.find(p => p.id === 'Sun');
       const moon = chart.planets.find(p => p.id === 'Moon');
-      const ascSign = E.SIGN_OF(chart.asc);
-      h += `<p>Rising is <em>${ascSign.name}</em>: ${ascSign.blurb}</p>`;
-      const rulerId = style === 'modern' ? ascSign.rulerMod : ascSign.rulerTrad;
-      const ruler = chart.planets.find(p => p.id === rulerId);
-      if (ruler) h += `<p>The chart’s ruler, <b>${rulerId}</b>, ${planetSignText(ruler, chart, style)} ${houseText(ruler, style)}</p>`;
+      if (timeKnown) {
+        const ascSign = E.SIGN_OF(chart.asc);
+        h += `<p>Rising is <em>${ascSign.name}</em>: ${ascSign.blurb}</p>`;
+        const rulerId = style === 'modern' ? ascSign.rulerMod : ascSign.rulerTrad;
+        const ruler = chart.planets.find(p => p.id === rulerId);
+        if (ruler) h += `<p>The chart’s ruler, <b>${rulerId}</b>, ${planetSignText(ruler, chart, style)} ${houseText(ruler, style)}</p>`;
+      }
       h += `<h3>The Luminaries</h3>`;
-      if (sun) h += `<p><b>☉ Sun in ${sun.sign}</b> (house ${sun.house}): ${planetSignText(sun, chart, style)}</p>`;
-      if (moon) h += `<p><b>☽ Moon in ${moon.sign}</b> (house ${moon.house}), born under a ${moonPhaseName(chart.moonPhaseAngle)}: ${planetSignText(moon, chart, style)}</p>`;
+      if (sun) h += `<p><b>☉ Sun in ${sun.sign}</b>${timeKnown ? ` (house ${sun.house})` : ''}: ${planetSignText(sun, chart, style)}</p>`;
+      if (moon) {
+        const mspan = !timeKnown ? moonSpanForDay(person) : null;
+        if (mspan && mspan.changed) {
+          const s1 = signOf(mspan.start), s2 = signOf(mspan.end);
+          h += `<p><b>☽ Moon in ${mspan.start} or ${mspan.end}</b> (it crossed over that day): if ${mspan.start} — ${s1.keywords.slice(0, 3).join(', ')}; if ${mspan.end} — ${s2.keywords.slice(0, 3).join(', ')}. ${s1.blurb} Or: ${s2.blurb}</p>`;
+        } else {
+          h += `<p><b>☽ Moon in ${moon.sign}</b>${timeKnown ? ` (house ${moon.house})` : ''}${timeKnown ? `, born under a ${moonPhaseName(chart.moonPhaseAngle)}` : ''}: ${planetSignText(moon, chart, style)}</p>`;
+        }
+      }
       // strongest & weakest
       const scored = chart.planets.filter(p => !p.isLot && D.BODY[p.id] && D.BODY[p.id].classic7);
       const strong = scored.filter(p => p.dignities.score >= 3);
       const weak = scored.filter(p => p.dignities.score <= -3);
       if (strong.length) h += `<p><b>Well-resourced:</b> ${strong.map(p => `${p.glyph} ${p.id} in ${p.sign} (${p.dignities.list.join(', ')})`).join('; ')}.</p>`;
       if (weak.length) h += `<p><b>Hard-working placements:</b> ${weak.map(p => `${p.glyph} ${p.id} in ${p.sign} (${p.dignities.list.join(', ')})`).join('; ')} — these mature through effort.</p>`;
-      const angular = chart.planets.filter(p => !p.isLot && [1, 4, 7, 10].includes(p.house) && p.id !== 'Node' && p.id !== 'Lilith');
+      const angular = timeKnown ? chart.planets.filter(p => !p.isLot && [1, 4, 7, 10].includes(p.house) && p.id !== 'Node' && p.id !== 'Lilith') : [];
       if (angular.length) h += `<p><b>Angular (loud) planets:</b> ${angular.map(p => `${p.glyph} ${p.id} in house ${p.house}`).join(', ')} — these dominate the life’s visible action.</p>`;
-      if (style !== 'modern' && chart.lots.length) {
+      if (timeKnown && style !== 'modern' && chart.lots.length) {
         const f = chart.lots.find(l => l.id === 'Fortune'), sp = chart.lots.find(l => l.id === 'Spirit');
         h += `<h3>The Lots</h3>`;
         if (f) h += `<p><b>⊗ Fortune in ${f.sign}</b> (house ${f.house}): the body and circumstantial luck live here.</p>`;
@@ -351,28 +367,38 @@
       const top = (crossAspects || []).slice(0, 8);
       if (!top.length) h += `<p class="muted">No close cross-aspects within orb.</p>`;
       for (const a of top) h += `<p>${aspectText(a, style, [la, lb])}</p>`;
-      // B planets in A houses
-      h += `<h3>${esc(lb)} in ${esc(la)}’s Houses</h3>`;
-      for (const id of ['Sun', 'Moon', 'Venus', 'Mars', 'Saturn']) {
-        const pb = ctx.chartB.planets.find(p => p.id === id);
-        if (!pb) continue;
-        const houseIn = houseOfLon(pb.lon, chart.cusps);
-        const hh = D.HOUSES[houseIn - 1];
-        h += `<p><b>${pb.glyph} ${id}</b> falls in ${esc(la)}’s ${ord(houseIn)} house — touching ${hh.topics.toLowerCase()}.</p>`;
+      // B planets in A houses (needs A's birth time)
+      const aTimeKnown = !personA || personA.timeKnown !== false;
+      const bTimeKnown = !personB || personB.timeKnown !== false;
+      if (aTimeKnown) {
+        h += `<h3>${esc(lb)} in ${esc(la)}’s Houses</h3>`;
+        for (const id of ['Sun', 'Moon', 'Venus', 'Mars', 'Saturn']) {
+          const pb = ctx.chartB.planets.find(p => p.id === id);
+          if (!pb) continue;
+          const houseIn = houseOfLon(pb.lon, chart.cusps);
+          const hh = D.HOUSES[houseIn - 1];
+          h += `<p><b>${pb.glyph} ${id}</b> falls in ${esc(la)}’s ${ord(houseIn)} house — touching ${hh.topics.toLowerCase()}.</p>`;
+        }
+      }
+      if (!aTimeKnown || !bTimeKnown) {
+        const who = [!aTimeKnown && la, !bTimeKnown && lb].filter(Boolean).map(esc).join(' and ');
+        h += `<p class="small muted"><b>Note:</b> ${who}’s birth time is unknown, so house overlays${!aTimeKnown && !bTimeKnown ? '' : ' involving them'} are left out and Moon contacts are read loosely — sign-to-sign chemistry and the planet contacts above still hold.</p>`;
       }
     }
 
     if (kind === 'transits') {
       const person = ctx.person;
       const la = person ? person.name : 'the native';
+      const timeKnown = !person || person.timeKnown !== false;
       h += `<h3>Transits for ${esc(la)}</h3>`;
+      if (!timeKnown) h += `<p class="small muted"><b>Birth time unknown</b> — contacts to the natal planets hold; which houses the transits move through can’t be judged without a time, so that part is left out. Contacts to the natal Moon are approximate.</p>`;
       const top = (ctx.crossAspects || []).filter(a => a.major).slice(0, 8);
       if (!top.length) h += `<p class="muted">No close transit contacts within orb right now.</p>`;
       // group: which natal houses are the slow transits lighting up?
       const skyC = ctx.chartB;
       const slowIds = ['Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'];
       const lit = [];
-      for (const id of slowIds) {
+      if (timeKnown) for (const id of slowIds) {
         const t = skyC.planets.find(p => p.id === id);
         if (!t) continue;
         const houseIn = houseOfLon(t.lon, chart.cusps);
@@ -402,6 +428,17 @@
 
     h += `<p class="sig">Composed offline from the computed chart — for a woven narrative reading, use an AI reading below. For reflection and entertainment.</p>`;
     return h;
+  }
+
+  // For unknown birth times: which signs did the Moon occupy across that calendar day?
+  function moonSpanForDay(person) {
+    if (!person || !person.y) return null;
+    try {
+      const opts = { lat: person.lat || 0, lon: person.lon || 0, bodies: ['Moon'], includeLots: false };
+      const s = g.Engine.computeChart(g.Engine.zonedTimeToUTC(person.y, person.mo, person.d, 0, 5, person.tz || 'UTC'), opts).planets[0].sign;
+      const e = g.Engine.computeChart(g.Engine.zonedTimeToUTC(person.y, person.mo, person.d, 23, 55, person.tz || 'UTC'), opts).planets[0].sign;
+      return { start: s, end: e, changed: s !== e };
+    } catch { return null; }
   }
 
   function houseOfLon(lon, cusps) {

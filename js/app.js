@@ -133,7 +133,7 @@
       <svg class="moon-icon" viewBox="0 0 40 40">${moonIconSvg(20, 20, 16, c.moonPhaseAngle)}</svg>
       <div class="cs-main"><b>${I.moonPhaseName(c.moonPhaseAngle)}</b> · ${(c.moonIllum * 100).toFixed(0)}% lit · <b>${c.isDay ? 'Day' : 'Night'} chart</b><br>
       <span class="muted">Asc ${E.fmtLon(c.asc)} · MC ${E.fmtLon(c.mc)}</span><br>
-      <span class="faint small">${esc(c.houseSystem)} houses · ${c.zodiac}${c.zodiac === 'sidereal' ? ` (ayanāṁśa ${c.ayanamsa.toFixed(2)}°)` : ''}</span></div>
+      <span class="faint small">${esc(c.houseSystem)} houses · ${c.zodiac}${c.zodiac === 'sidereal' ? ` (ayanāṁśa ${c.ayanamsa.toFixed(2)}°)` : ''}</span>${(state.mode === 'natal' || state.mode === 'transits') && view.person && view.person.timeKnown === false ? '<br><span class="faint small">⚠ birth time unknown — cast for noon; Asc, houses &amp; Moon degree are placeholders</span>' : ''}</div>
     </div>`;
 
     const section = (title, chart, ring) => {
@@ -444,10 +444,12 @@
         // personal forecast: track transiting aspects to the natal chart
         const natal = People.natalChart(ctx.person, chartOpts());
         ctx.chart = natal;
+        const timeKnown = ctx.person.timeKnown !== false;
         scanOpts.natalPoints = natal.planets
           .filter(p => !p.isLot && p.id !== 'Lilith')
+          .filter(p => timeKnown || p.id !== 'Moon') // noon Moon is ±6° — too vague to time transit hits
           .map(p => ({ id: p.id, lon: p.lon }));
-        if (ctx.person.timeKnown !== false) {
+        if (timeKnown) {
           scanOpts.natalPoints.push({ id: 'Asc', lon: natal.asc }, { id: 'MC', lon: natal.mc });
         }
       }
@@ -515,7 +517,7 @@
     <div class="pform">
       <label class="full">Name<input type="text" id="pfName" value="${esc(ep.name || '')}" placeholder="Name"></label>
       <label>Birth date<input type="date" id="pfDate" value="${ep.y ? `${String(ep.y).padStart(4, '0')}-${String(ep.mo).padStart(2, '0')}-${String(ep.d).padStart(2, '0')}` : ''}"></label>
-      <label>Birth time <input type="time" id="pfTime" value="${ep.timeKnown === false ? '' : (ep.hh !== undefined ? `${String(ep.hh).padStart(2, '0')}:${String(ep.mm).padStart(2, '0')}` : '')}"></label>
+      <label>Birth time — blank if unknown <input type="time" id="pfTime" value="${ep.timeKnown === false ? '' : (ep.hh !== undefined ? `${String(ep.hh).padStart(2, '0')}:${String(ep.mm).padStart(2, '0')}` : '')}"></label>
       <label class="full">Timezone of birth<select id="pfTz"></select></label>
       <label class="full">Birthplace search<input type="text" id="pfPlace" value="${esc(ep.place || '')}" placeholder="City (press Enter to search — needs internet)"></label>
       <div class="full loc-results" id="pfResults"></div>
