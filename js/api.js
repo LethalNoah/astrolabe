@@ -10,19 +10,56 @@
 
   const SKEY = 'astrolabe.api.v1';
 
-  function getSettings() {
-    try { return Object.assign({ apiKey: '', model: 'claude-opus-5' }, JSON.parse(localStorage.getItem(SKEY) || '{}')); }
-    catch { return { apiKey: '', model: 'claude-opus-5' }; }
-  }
-  function setSettings(s) {
-    localStorage.setItem(SKEY, JSON.stringify(Object.assign(getSettings(), s)));
-  }
+  const PROVIDERS = {
+    anthropic: {
+      label: 'Claude (Anthropic)', short: 'Anthropic',
+      keyHint: 'sk-ant-… from console.anthropic.com',
+      models: [
+        { id: 'claude-opus-5', label: 'Claude Opus 5 — richest readings' },
+        { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — fast & capable' },
+        { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — quickest, cheapest' },
+      ],
+    },
+    openai: {
+      label: 'ChatGPT (OpenAI)', short: 'OpenAI',
+      keyHint: 'sk-… from platform.openai.com',
+      models: [
+        { id: 'gpt-5.1', label: 'GPT-5.1' },
+        { id: 'gpt-5', label: 'GPT-5' },
+        { id: 'gpt-4.1', label: 'GPT-4.1' },
+      ],
+    },
+    gemini: {
+      label: 'Gemini (Google)', short: 'Google',
+      keyHint: 'AIza… from aistudio.google.com',
+      models: [
+        { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      ],
+    },
+  };
+  const DEFAULT_MODELS = { anthropic: 'claude-opus-5', openai: 'gpt-5.1', gemini: 'gemini-2.5-pro' };
 
-  const MODELS = [
-    { id: 'claude-opus-5', label: 'Claude Opus 5 — richest readings' },
-    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — fast & capable' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — quickest, cheapest' },
-  ];
+  function getSettings() {
+    let s;
+    try { s = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { s = {}; }
+    const out = {
+      provider: PROVIDERS[s.provider] ? s.provider : 'anthropic',
+      keys: Object.assign({ anthropic: '', openai: '', gemini: '' }, s.keys),
+      models: Object.assign({}, DEFAULT_MODELS, s.models),
+    };
+    // migrate the old single-provider shape {apiKey, model}
+    if (s.apiKey && !out.keys.anthropic) out.keys.anthropic = s.apiKey;
+    if (s.model && (!s.models || !s.models.anthropic)) out.models.anthropic = s.model;
+    return out;
+  }
+  function save(s) { localStorage.setItem(SKEY, JSON.stringify(s)); }
+  function setProvider(p) { const s = getSettings(); if (PROVIDERS[p]) { s.provider = p; save(s); } }
+  function setKey(provider, key) { const s = getSettings(); s.keys[provider] = key; save(s); }
+  function setModel(provider, model) { const s = getSettings(); if (model) { s.models[provider] = model; save(s); } }
+  function hasKey() { const s = getSettings(); return !!s.keys[s.provider]; }
+  function currentModel() { const s = getSettings(); return s.models[s.provider]; }
+  function providerLabel() { const s = getSettings(); return PROVIDERS[s.provider].label; }
 
   // ---------- prompt construction ----------
   const STYLE_VOICE = {
@@ -45,13 +82,14 @@ Rules:
 - Astrology here is a reflective, symbolic language. Do not make medical, legal, or financial predictions; never predict death, disaster, or diagnosis. If the data invites that, reframe toward reflection and agency.`;
   }
 
+  // people saved without a birth time: the chart is a noon stand-in
+  const tkNote = person => person && person.timeKnown === false
+    ? `\nNOTE: ${person.name}'s birth time is unknown — their chart is cast for noon. Do not use the Ascendant, houses, sect, or lots for them; treat the Moon's degree as approximate (it may even change sign across the day) and briefly say so.`
+    : '';
+
   function buildPrompt(kind, ctx) {
     const I = g.Interpret;
     let p = '';
-    // people saved without a birth time: the chart is a noon stand-in
-    const tkNote = person => person && person.timeKnown === false
-      ? `\nNOTE: ${person.name}'s birth time is unknown — their chart is cast for noon. Do not use the Ascendant, houses, sect, or lots for them; treat the Moon's degree as approximate (it may even change sign across the day) and briefly say so.`
-      : '';
     if (kind === 'natal') {
       p = `Write a natal chart reading${ctx.person ? ` for ${ctx.person.name}` : ''}.${tkNote(ctx.person)}\n\n${I.chartToText(ctx.chart, 'Natal chart')}\n\nAspects:\n${I.aspectsToText(ctx.aspects)}${ctx.patterns && ctx.patterns.length ? `\n\nPatterns: ${ctx.patterns.map(x => `${x.name} (${x.members.join(', ')})`).join('; ')}` : ''}`;
     } else if (kind === 'sky') {
@@ -70,6 +108,22 @@ Rules:
       }
     }
     return p;
+  }
+
+  // ---------- data-only context block for chart Q&A ----------
+  function contextText(kind, ctx) {
+    const I = g.Interpret;
+    if (kind === 'natal')
+      return `${I.chartToText(ctx.chart, `Natal chart${ctx.person ? ` of ${ctx.person.name}` : ''}`)}\n\nAspects:\n${I.aspectsToText(ctx.aspects)}${ctx.patterns && ctx.patterns.length ? `\nPatterns: ${ctx.patterns.map(x => `${x.name} (${x.members.join(', ')})`).join('; ')}` : ''}${tkNote(ctx.person)}`;
+    if (kind === 'sky')
+      return `${I.chartToText(ctx.chart, 'The sky at the chosen moment')}\n\nAspects:\n${I.aspectsToText(ctx.aspects)}`;
+    if (kind === 'transits')
+      return `${I.chartToText(ctx.chart, `${ctx.person ? ctx.person.name + '’s' : 'The'} natal chart`)}\n\n${I.chartToText(ctx.chartB, 'The sky at the chosen moment (transits)')}\n\nContacts (natal planet first, transiting second):\n${I.aspectsToText(ctx.crossAspects, ['natal', 'transiting'])}${tkNote(ctx.person)}`;
+    if (kind === 'synastry')
+      return `${I.chartToText(ctx.chart, `${ctx.personA.name}'s chart`)}\n\n${I.chartToText(ctx.chartB, `${ctx.personB.name}'s chart`)}\n\nCross-aspects (${ctx.personA.name}'s planet first, ${ctx.personB.name}'s second):\n${I.aspectsToText(ctx.crossAspects, [ctx.personA.name, ctx.personB.name])}${tkNote(ctx.personA)}${tkNote(ctx.personB)}`;
+    if (kind === 'period')
+      return `Period: ${ctx.from.toDateString()} — ${ctx.to.toDateString()}${ctx.person ? ` (personal context for ${ctx.person.name}; events marked "natal" touch their birth chart)` : ''}\n\n${I.chartToText(ctx.chart, ctx.person ? `${ctx.person.name}'s natal chart` : 'Sky at the period start')}\n\nEvents in the window:\n${I.eventsToText(ctx.events)}${tkNote(ctx.person)}`;
+    return '';
   }
 
   // ---------- markdown-lite renderer for the reading pane ----------
@@ -93,27 +147,30 @@ Rules:
     return html;
   }
 
-  // ---------- streaming reading ----------
-  /**
-   * streamReading({kind, style, ctx, onDelta(fullText), onDone(fullText), onError(msg)})
-   */
-  async function streamReading(opts) {
+  // ---------- streaming core (shared by readings and Q&A) ----------
+  // Dispatches to the configured provider. Claude is the default and uses the
+  // official Anthropic SDK; OpenAI and Gemini use their REST SSE endpoints.
+  async function streamCompletion(o) {
     const s = getSettings();
-    if (!s.apiKey) { opts.onError('No API key set. Add one in Settings → AI readings.'); return; }
-    if (typeof g.AnthropicSDK === 'undefined') { opts.onError('AI module not loaded.'); return; }
+    const key = s.keys[s.provider];
+    if (!key) { o.onError(`No ${PROVIDERS[s.provider].label} API key set. Add one in Settings → AI readings.`); return; }
+    try {
+      if (s.provider === 'openai') return await streamOpenAI(o, key, s.models.openai);
+      if (s.provider === 'gemini') return await streamGemini(o, key, s.models.gemini);
+      return await streamAnthropic(o, key, s.models.anthropic);
+    } catch (err) {
+      o.onError(`Request failed (${PROVIDERS[s.provider].short}): ` + (err && err.message ? err.message : err));
+    }
+  }
 
-    const client = new g.AnthropicSDK({ apiKey: s.apiKey, dangerouslyAllowBrowser: true });
-    const req = {
-      model: s.model,
-      max_tokens: 16000,
-      system: buildSystem(opts.style),
-      messages: [{ role: 'user', content: buildPrompt(opts.kind, opts.ctx) }],
-    };
-
+  async function streamAnthropic({ system, messages, onDelta, onDone, onError }, key, model) {
+    if (typeof g.AnthropicSDK === 'undefined') { onError('AI module not loaded.'); return; }
+    const client = new g.AnthropicSDK({ apiKey: key, dangerouslyAllowBrowser: true });
+    const req = { model, max_tokens: 16000, system, messages };
     let full = '';
     try {
       let stream;
-      if (s.model.startsWith('claude-opus-5') || s.model.startsWith('claude-fable')) {
+      if (model.startsWith('claude-opus-5') || model.startsWith('claude-fable')) {
         // server-side refusal fallbacks (beta) — reroutes a safety decline instead of dying
         stream = client.beta.messages.stream(Object.assign({}, req, {
           betas: ['server-side-fallback-2026-07-01'],
@@ -125,24 +182,141 @@ Rules:
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           full += event.delta.text;
-          opts.onDelta(full);
+          onDelta(full);
         }
       }
       const final = await stream.finalMessage();
       if (final.stop_reason === 'refusal') {
-        opts.onError('The model declined this request' + (final.stop_details && final.stop_details.explanation ? ': ' + final.stop_details.explanation : '.'));
+        onError('The model declined this request' + (final.stop_details && final.stop_details.explanation ? ': ' + final.stop_details.explanation : '.'));
         return;
       }
-      opts.onDone(full);
+      onDone(full);
     } catch (err) {
       const A = g.AnthropicSDK;
-      let msg = 'Reading failed: ' + (err && err.message ? err.message : err);
+      let msg = 'Request failed: ' + (err && err.message ? err.message : err);
       if (A && err instanceof A.AuthenticationError) msg = 'Invalid API key — check it in Settings.';
       else if (A && err instanceof A.RateLimitError) msg = 'Rate limited by the API — wait a moment and try again.';
       else if (A && err instanceof A.APIConnectionError) msg = 'Could not reach the Anthropic API — check your internet connection.';
-      opts.onError(msg);
+      onError(msg);
     }
   }
 
-  g.Api = { getSettings, setSettings, MODELS, streamReading, mdToHtml };
+  // parse a text/event-stream response, calling onData per "data:" payload
+  async function readSSE(res, onData) {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line.startsWith('data:')) {
+          const payload = line.slice(5).trim();
+          if (payload) onData(payload);
+        }
+      }
+    }
+  }
+
+  function httpErrMsg(provider, status, body) {
+    if (status === 401 || status === 403) return `Invalid ${provider} API key — check it in Settings.`;
+    if (status === 404) return `${provider} doesn't recognize that model id — pick another in Settings.`;
+    if (status === 429) return `Rate limited by ${provider} — wait a moment and try again.`;
+    let detail = '';
+    try { const j = JSON.parse(body); detail = (j.error && (j.error.message || j.error.status)) || ''; } catch {}
+    return `${provider} error ${status}${detail ? ': ' + detail.slice(0, 160) : ''}`;
+  }
+
+  async function streamOpenAI({ system, messages, onDelta, onDone, onError }, key, model) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model, stream: true, max_completion_tokens: 8000,
+        messages: [{ role: 'system', content: system }].concat(messages),
+      }),
+    });
+    if (!res.ok) { onError(httpErrMsg('OpenAI', res.status, await res.text().catch(() => ''))); return; }
+    let full = '', filtered = false;
+    await readSSE(res, data => {
+      if (data === '[DONE]') return;
+      const j = JSON.parse(data);
+      const ch = j.choices && j.choices[0];
+      if (!ch) return;
+      if (ch.delta && ch.delta.content) { full += ch.delta.content; onDelta(full); }
+      if (ch.finish_reason === 'content_filter') filtered = true;
+    });
+    if (filtered && !full) { onError('The model declined this request.'); return; }
+    onDone(full);
+  }
+
+  async function streamGemini({ system, messages, onDelta, onDone, onError }, key, model) {
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, // key in a header, never in the URL
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: { maxOutputTokens: 8000 },
+      }),
+    });
+    if (!res.ok) { onError(httpErrMsg('Gemini', res.status, await res.text().catch(() => ''))); return; }
+    let full = '', blocked = false;
+    await readSSE(res, data => {
+      const j = JSON.parse(data);
+      const cand = j.candidates && j.candidates[0];
+      if (cand && cand.content && cand.content.parts) {
+        for (const p of cand.content.parts) if (p.text) { full += p.text; onDelta(full); }
+      }
+      if ((cand && cand.finishReason === 'SAFETY') || (j.promptFeedback && j.promptFeedback.blockReason)) blocked = true;
+    });
+    if (blocked && !full) { onError('The model declined this request.'); return; }
+    onDone(full);
+  }
+
+  /**
+   * streamReading({kind, style, ctx, onDelta(fullText), onDone(fullText), onError(msg)})
+   */
+  function streamReading(opts) {
+    return streamCompletion({
+      system: buildSystem(opts.style),
+      messages: [{ role: 'user', content: buildPrompt(opts.kind, opts.ctx) }],
+      onDelta: opts.onDelta, onDone: opts.onDone, onError: opts.onError,
+    });
+  }
+
+  /**
+   * streamAsk({question, history: [{q,a}], ctxText, style, onDelta, onDone, onError})
+   * ctxText: the chart-context block the conversation is pinned to (from contextText()).
+   */
+  function streamAsk(opts) {
+    const system = buildSystem(opts.style) + `
+
+You are now answering direct questions about the chart context supplied in the first message. Answer the question actually asked — directly and concretely, grounded strictly in that data, citing the placements you are reading (usually 120–350 words unless the question needs more). If the chart context genuinely cannot address the question, say so and name what could (a birth time, a different reading type, a longer period). Never predict death, diagnosis, disaster, or guaranteed outcomes; where a question reaches for certainty, read the pressures and openings the chart actually shows and hand the agency back to the asker.`;
+    const messages = [];
+    const h = opts.history || [];
+    if (h.length) {
+      messages.push({ role: 'user', content: `Chart context:\n${opts.ctxText}\n\nQuestion: ${h[0].q}` });
+      messages.push({ role: 'assistant', content: h[0].a });
+      for (let i = 1; i < h.length; i++) {
+        messages.push({ role: 'user', content: h[i].q });
+        messages.push({ role: 'assistant', content: h[i].a });
+      }
+      messages.push({ role: 'user', content: opts.question });
+    } else {
+      messages.push({ role: 'user', content: `Chart context:\n${opts.ctxText}\n\nQuestion: ${opts.question}` });
+    }
+    return streamCompletion({ system, messages, onDelta: opts.onDelta, onDone: opts.onDone, onError: opts.onError });
+  }
+
+  g.Api = { getSettings, setProvider, setKey, setModel, hasKey, currentModel, providerLabel,
+            PROVIDERS, streamReading, streamAsk, contextText, mdToHtml };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -42,6 +42,7 @@
     hover: null,
     editingPerson: null,
     periodFrom: null, periodTo: null,
+    ask: null, askSig: '',   // ask-the-chart conversation, pinned to a reading context
   };
 
   // computed per frame
@@ -336,13 +337,29 @@
     }
     if (caption) h += `<p class="small faint" style="margin:2px 0 0">${caption}</p>`;
 
+    // a change of reading context orphans any running Q&A thread
+    const askSig = [rt, state.readingPersonA, state.readingPersonB, state.periodTarget, state.periodFrom, state.periodTo].join('|');
+    if (state.ask && state.ask.sig !== askSig) state.ask = null;
+    state.askSig = askSig;
+
+    const askPh = {
+      sky: 'Ask about this moment… e.g. “Is tonight good for a difficult conversation?”',
+      natal: `Ask about ${nameA || 'this'}’s chart… e.g. “What does this chart say about work?”`,
+      transits: `Ask what’s happening for ${nameA || 'them'} right now…`,
+      period: 'Ask about this stretch… e.g. “When in this window should I make my move?”',
+      synastry: `Ask about ${nameA || 'A'} and ${nameB || 'B'}… e.g. “Where will we clash, and how do we handle it?”`,
+    }[rt] || 'Ask a question about this chart…';
+
     h += `<div class="rd-row">
       <button class="btn" id="btnCompose">Compose reading</button>
       <button class="btn btn-gold" id="btnAI">✦ AI reading</button>
       <span class="small faint" id="rdStatus"></span>
     </div></div>
+    <div class="sec-h" style="margin-top:6px">Ask the chart <span class="sec-note">✦ AI · answers from this context</span></div>
+    <div class="ask-row"><input type="text" id="askInput" placeholder="${askPh}"><button class="btn btn-gold" id="btnAsk">Ask</button></div>
+    <div id="askThread"></div>
     <div class="reading-out" id="readingOut" style="display:none"></div>
-    <p class="ai-note">“Compose” builds a reading instantly from the computed chart, fully offline. “AI reading” sends the chart data to Anthropic's Claude (needs an API key in ⚙ Settings) and writes a woven narrative in your chosen voice. Readings are for reflection and entertainment.</p>`;
+    <p class="ai-note">“Compose” builds a reading instantly from the computed chart, fully offline. “AI reading” and “Ask the chart” send the chart data to your chosen AI provider — Claude by default; OpenAI or Gemini selectable in ⚙ Settings (needs that provider's API key). Readings are for reflection and entertainment.</p>`;
     el.innerHTML = h;
     // preserve prior reading html
     if (el.dataset.readingHtml) {
@@ -377,6 +394,64 @@
 
     $('btnCompose').addEventListener('click', () => runReading(false));
     $('btnAI').addEventListener('click', () => runReading(true));
+    $('btnAsk').addEventListener('click', runAsk);
+    $('askInput').addEventListener('keydown', e => { if (e.key === 'Enter') runAsk(); });
+    renderAskThread();
+  }
+
+  // ---------------- ask-the-chart Q&A ----------------
+  let askBusy = false;
+
+  function renderAskThread() {
+    const el = $('askThread');
+    if (!el) return;
+    if (!state.ask || !state.ask.items.length) { el.innerHTML = ''; return; }
+    let h = '';
+    for (const it of state.ask.items) {
+      h += `<div class="ask-q">${esc(it.q)}</div>`;
+      h += `<div class="reading-out ask-a">${it.a ? window.Api.mdToHtml(it.a) : (it.err ? '' : '<p class="muted"><span class="spin">✦</span> reading the chart…</p>')}${it.err ? `<p style="color:var(--danger)">${esc(it.err)}</p>` : ''}</div>`;
+    }
+    h += `<div class="rd-row" style="margin:8px 0 4px"><button class="btn small" id="askClear">Clear conversation</button></div>`;
+    el.innerHTML = h;
+    el.querySelector('#askClear').addEventListener('click', () => { state.ask = null; renderAskThread(); });
+  }
+
+  async function runAsk() {
+    if (askBusy) return;
+    const input = $('askInput');
+    const q = input.value.trim();
+    if (!q) return;
+    if (!window.Api.hasKey()) {
+      $('askThread').innerHTML = `<p class="ai-note">Questions are answered by your chosen AI provider (currently <b>${esc(window.Api.providerLabel())}</b>) — add its API key in the <b>⚙ Settings</b> tab. Stored only in this browser, sent only to that provider.</p>`;
+      return;
+    }
+    const kind = state.readingType || 'sky';
+    const ctx = buildReadingCtx(kind);
+    if (ctx.error) {
+      $('askThread').innerHTML = `<p class="ai-note">${esc(ctx.error)}</p>`;
+      return;
+    }
+    if (kind === 'period') {
+      const err = await preparePeriodCtx(ctx, $('rdStatus'));
+      $('rdStatus').textContent = '';
+      if (err) { $('askThread').innerHTML = `<p class="ai-note">${esc(err)}</p>`; return; }
+    }
+    if (!state.ask) state.ask = { sig: state.askSig, ctxText: null, items: [] };
+    // the thread stays pinned to the chart snapshot of its first question
+    if (!state.ask.ctxText) state.ask.ctxText = window.Api.contextText(kind, ctx);
+
+    const item = { q, a: '', done: false };
+    const history = state.ask.items.filter(it => it.done && !it.err);
+    state.ask.items.push(item);
+    input.value = '';
+    askBusy = true;
+    renderAskThread();
+    window.Api.streamAsk({
+      question: q, history, ctxText: state.ask.ctxText, style: state.readingStyle,
+      onDelta: t => { item.a = t; renderAskThread(); },
+      onDone: t => { item.a = t; item.done = true; askBusy = false; renderAskThread(); },
+      onError: m => { item.err = m; item.done = true; askBusy = false; renderAskThread(); },
+    });
   }
 
   /**
@@ -423,6 +498,33 @@
     return ctx;
   }
 
+  // scan + attach ephemeris events for a period ctx; returns an error message or null
+  async function preparePeriodCtx(ctx, statusEl) {
+    if (statusEl) statusEl.textContent = 'scanning ephemeris…';
+    await new Promise(r => setTimeout(r, 30)); // let UI paint
+    const span = ctx.to - ctx.from;
+    if (span <= 0 || span > 366 * 864e5) return 'Pick a period up to one year long.';
+    const scanOpts = {};
+    if (ctx.person) {
+      // personal forecast: track transiting aspects to the natal chart
+      const natal = People.natalChart(ctx.person, chartOpts());
+      ctx.chart = natal;
+      const timeKnown = ctx.person.timeKnown !== false;
+      scanOpts.natalPoints = natal.planets
+        .filter(p => !p.isLot && p.id !== 'Lilith')
+        .filter(p => timeKnown || p.id !== 'Moon') // noon Moon is ±6° — too vague to time transit hits
+        .map(p => ({ id: p.id, lon: p.lon }));
+      if (timeKnown) {
+        scanOpts.natalPoints.push({ id: 'Asc', lon: natal.asc }, { id: 'MC', lon: natal.mc });
+      }
+    }
+    ctx.events = E.scanEvents(ctx.from, ctx.to, scanOpts);
+    // long windows: drop the Moon's sign-ingresses (every 2.5 days) — lunations carry the story
+    if (span > 45 * 864e5) ctx.events = ctx.events.filter(ev => !(ev.kind === 'ingress' && ev.body === 'Moon'));
+    if (!ctx.person) ctx.chart = E.computeChart(ctx.from, chartOpts({ lat: loc.lat, lon: loc.lon }));
+    return null;
+  }
+
   let readingBusy = false;
   async function runReading(useAI) {
     if (readingBusy) return;
@@ -433,30 +535,8 @@
     if (ctx.error) { out.innerHTML = `<p class="muted">${esc(ctx.error)}</p>`; return; }
 
     if (kind === 'period') {
-      status.textContent = 'scanning ephemeris…';
-      await new Promise(r => setTimeout(r, 30)); // let UI paint
-      const span = ctx.to - ctx.from;
-      if (span <= 0 || span > 366 * 864e5) {
-        out.innerHTML = `<p class="muted">Pick a period up to one year long.</p>`; status.textContent = ''; return;
-      }
-      const scanOpts = {};
-      if (ctx.person) {
-        // personal forecast: track transiting aspects to the natal chart
-        const natal = People.natalChart(ctx.person, chartOpts());
-        ctx.chart = natal;
-        const timeKnown = ctx.person.timeKnown !== false;
-        scanOpts.natalPoints = natal.planets
-          .filter(p => !p.isLot && p.id !== 'Lilith')
-          .filter(p => timeKnown || p.id !== 'Moon') // noon Moon is ±6° — too vague to time transit hits
-          .map(p => ({ id: p.id, lon: p.lon }));
-        if (timeKnown) {
-          scanOpts.natalPoints.push({ id: 'Asc', lon: natal.asc }, { id: 'MC', lon: natal.mc });
-        }
-      }
-      ctx.events = E.scanEvents(ctx.from, ctx.to, scanOpts);
-      // long windows: drop the Moon's sign-ingresses (every 2.5 days) — lunations carry the story
-      if (span > 45 * 864e5) ctx.events = ctx.events.filter(ev => !(ev.kind === 'ingress' && ev.body === 'Moon'));
-      if (!ctx.person) ctx.chart = E.computeChart(ctx.from, chartOpts({ lat: loc.lat, lon: loc.lon }));
+      const err = await preparePeriodCtx(ctx, status);
+      if (err) { out.innerHTML = `<p class="muted">${esc(err)}</p>`; status.textContent = ''; return; }
     }
 
     if (!useAI) {
@@ -469,8 +549,8 @@
     }
 
     // AI reading
-    if (!window.Api.getSettings().apiKey) {
-      out.innerHTML = `<p>To use AI readings, add your Anthropic API key in the <b>⚙ Settings</b> tab. The key is stored only in this browser and sent only to Anthropic.</p><p class="small muted">You can create a key at console.anthropic.com. Offline “Compose” readings work without one.</p>`;
+    if (!window.Api.hasKey()) {
+      out.innerHTML = `<p>To use AI readings, add an API key for <b>${esc(window.Api.providerLabel())}</b> in the <b>⚙ Settings</b> tab (you can also switch provider there — Claude is the default). Keys are stored only in this browser and sent only to that provider.</p><p class="small muted">Offline “Compose” readings work without one.</p>`;
       return;
     }
     readingBusy = true;
@@ -480,7 +560,7 @@
       kind, style: state.readingStyle, ctx,
       onDelta: text => { out.innerHTML = window.Api.mdToHtml(text); },
       onDone: text => {
-        const html = window.Api.mdToHtml(text) + `<p class="sig">Written by ${window.Api.getSettings().model} from the computed chart data · for reflection and entertainment.</p>`;
+        const html = window.Api.mdToHtml(text) + `<p class="sig">Written by ${esc(window.Api.currentModel())} from the computed chart data · for reflection and entertainment.</p>`;
         out.innerHTML = html;
         $('tab-reading').dataset.readingHtml = html;
         $('tab-reading').dataset.hasReading = '1';
@@ -681,11 +761,20 @@
       <input type="range" id="setOrb" min="0.4" max="1.6" step="0.05" value="${settings.orbScale}" style="width:140px"></div>
 
     <div class="sec-h">AI readings</div>
-    <div class="set-row"><span>Anthropic API key<span class="hint">stored only in this browser; sent only to Anthropic</span></span></div>
-    <input type="password" id="setKey" style="width:100%" placeholder="sk-ant-…" value="${esc(api.apiKey)}">
+    ${(() => {
+      const P = window.Api.PROVIDERS, prov = api.provider;
+      const curated = P[prov].models, curModel = api.models[prov];
+      const isCustom = customModelUI || !curated.some(m => m.id === curModel);
+      return `
+    <div class="set-row"><span>Provider<span class="hint">Claude is the default; each provider keeps its own key</span></span>
+      <select id="setProvider">${Object.entries(P).map(([id, p]) => `<option value="${id}" ${prov === id ? 'selected' : ''}>${p.label}${id === 'anthropic' ? ' — default' : ''}</option>`).join('')}</select></div>
+    <div class="set-row"><span>API key<span class="hint">${P[prov].keyHint} · stored only in this browser; sent only to ${P[prov].short}</span></span></div>
+    <input type="password" id="setKey" style="width:100%" placeholder="${P[prov].keyHint.split(' ')[0]}" value="${esc(api.keys[prov])}">
     <div class="set-row" style="margin-top:6px"><span>Model</span>
-      <select id="setModel">${window.Api.MODELS.map(m => `<option value="${m.id}" ${api.model === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}</select></div>
-    <p class="small faint">Get a key at console.anthropic.com → API keys. Offline “Compose” readings work without one.</p>
+      <select id="setModel">${curated.map(m => `<option value="${m.id}" ${!isCustom && curModel === m.id ? 'selected' : ''}>${m.label}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom model id…</option></select></div>
+    ${isCustom ? `<input type="text" id="setModelCustom" style="width:100%;margin-top:6px" placeholder="exact model id, e.g. ${curated[0].id}" value="${esc(curated.some(m => m.id === curModel) ? '' : curModel)}">` : ''}`;
+    })()}
+    <p class="small faint">Offline “Compose” readings work without any key. AI readings and questions go directly from your browser to the selected provider — nothing passes through anyone else.</p>
 
     <div class="sec-h">About</div>
     <p class="small muted">Astrolabe computes real geocentric positions with the astronomy-engine ephemeris (±1 arcminute for planets). Hellenistic layer: whole-sign houses, sect, essential dignities (domicile · exaltation · Dorothean triplicity · Egyptian bounds · decans), Lots of Fortune & Spirit, annual profections. Charts are for reflection and entertainment.</p>`;
@@ -713,9 +802,26 @@
     el.querySelector('#setClassic').addEventListener('click', () => { upd(() => settings.bodies = CLASSIC7.slice()); renderSettings(); });
     el.querySelector('#setModern10').addEventListener('click', () => { upd(() => settings.bodies = DEFAULT_BODIES.slice(0, 10)); renderSettings(); });
     el.querySelector('#setAll').addEventListener('click', () => { upd(() => settings.bodies = DEFAULT_BODIES.slice()); renderSettings(); });
-    el.querySelector('#setKey').addEventListener('change', e => window.Api.setSettings({ apiKey: e.target.value.trim() }));
-    el.querySelector('#setModel').addEventListener('change', e => window.Api.setSettings({ model: e.target.value }));
+    el.querySelector('#setProvider').addEventListener('change', e => {
+      window.Api.setProvider(e.target.value);
+      customModelUI = false;
+      renderSettings();
+    });
+    el.querySelector('#setKey').addEventListener('change', e =>
+      window.Api.setKey(window.Api.getSettings().provider, e.target.value.trim()));
+    el.querySelector('#setModel').addEventListener('change', e => {
+      const prov = window.Api.getSettings().provider;
+      if (e.target.value === '__custom') { customModelUI = true; }
+      else { customModelUI = false; window.Api.setModel(prov, e.target.value); }
+      renderSettings();
+    });
+    const cm = el.querySelector('#setModelCustom');
+    if (cm) cm.addEventListener('change', () => {
+      const prov = window.Api.getSettings().provider;
+      if (cm.value.trim()) { window.Api.setModel(prov, cm.value.trim()); customModelUI = false; renderSettings(); }
+    });
   }
+  let customModelUI = false; // "Custom model id…" chosen but not yet entered
 
   function syncChips() {
     const isClassic = settings.bodies.length === 7 && CLASSIC7.every(b => settings.bodies.includes(b));

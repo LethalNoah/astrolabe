@@ -54,7 +54,8 @@ Whole-sign houses (default), day/night **sect** with benefic/malefic roles, esse
   - **Period** — a forecast across any window up to a year, for **the world** (ingresses, stations, exact aspects, lunations) or **for a person** (adds every transiting aspect that perfects against their natal chart in the window),
   - **Synastry** — two people compared.
 - **Compose** builds a reading instantly and offline from the computed chart.
-- **✦ AI reading** sends the chart data to Anthropic's Claude and streams back a woven narrative in your chosen voice. Add your API key in ⚙ Settings (get one at console.anthropic.com). The key lives only in your browser and is sent only to Anthropic. Model choices: Opus 5 (richest), Sonnet 5, Haiku 4.5.
+- **✦ AI reading** sends the chart data to your chosen AI provider and streams back a woven narrative in your chosen voice. **Claude (Anthropic) is the default**; ⚙ Settings lets you switch to ChatGPT (OpenAI) or Gemini (Google) instead — each provider keeps its own key and model choice (curated list plus a custom-model field), and requests go straight from your browser to that provider.
+- **Ask the chart** — type a free-form question and get a focused answer grounded in the selected context: ask this moment's sky whether tonight suits a hard conversation, ask a birth chart about work, ask a period "when in this window should I move?", or ask a synastry pair where they'll clash. Follow-up questions continue the conversation, pinned to the chart snapshot you started with; switching context starts a fresh thread.
 
 ## Privacy & publishing to GitHub
 
