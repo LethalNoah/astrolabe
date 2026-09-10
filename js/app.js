@@ -1017,6 +1017,7 @@
   svg.addEventListener('click', e => {
     const t = e.target.closest('[data-sel]');
     state.selection = t ? parseSel(t) : null;
+    tooltip.hidden = true; // touch devices get no pointerleave — don't strand the tooltip
     renderPositions(); renderAspectsPane();
     switchTab('explore');
   });

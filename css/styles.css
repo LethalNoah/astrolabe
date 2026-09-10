@@ -468,14 +468,76 @@ input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border: none;
 .dimmed { opacity: 0.13 !important; }
 .hl { filter: drop-shadow(0 0 6px rgba(232, 201, 106, 0.8)); }
 
-/* ---------------- responsive ---------------- */
+/* ---------------- responsive: stacked app layout (tablets & phones) ----------------
+   The page becomes a normal scrolling document: sticky header, full-width wheel,
+   HUD rows in flow (not overlaid), panel content in flow (the desktop absolute
+   panes would collapse to zero height here), compact sticky time bar. */
 @media (max-width: 1100px) {
-  body { overflow: auto; }
-  main { display: flex; flex-direction: column; }
-  #wheelWrap { position: relative; inset: auto; }
-  #panel { position: relative; width: 100%; border-left: none; border-top: 1px solid var(--line); max-height: 46vh; transform: none; }
+  html, body { height: auto; min-height: 100%; }
+  body { overflow-y: auto; overflow-x: hidden; }
+
+  .topbar { position: sticky; top: 0; z-index: 20; flex-wrap: wrap; row-gap: 6px; }
+
+  main { display: flex; flex-direction: column; flex: none; min-height: 0; }
+
+  #wheelWrap { position: relative; inset: auto; flex: none; flex-direction: column; padding: 8px 6px 4px; }
+  .wheel-hud { position: static; width: 100%; justify-content: center; flex-wrap: wrap; }
+  .hud-tl { order: 1; align-items: center; text-align: center; }
+  .hud-tr, body.panel-collapsed .hud-tr { order: 2; right: auto; margin: 6px 0 2px; }
+  #wheel, body.panel-collapsed #wheel {
+    order: 3;
+    width: min(96vw, 62vh); height: auto; min-height: 0;
+    transition: none;
+  }
+  .hud-bl { order: 4; flex-direction: row; flex-wrap: wrap; justify-content: center; max-width: none; margin-top: 2px; }
+
+  #panel {
+    position: relative; width: 100%; max-height: none;
+    border-left: none; border-top: 1px solid var(--line);
+    transform: none; transition: none;
+  }
   #panel.collapsed { transform: none; }
   #panelToggle, #panelWide { display: none; }
-  .hud-tr, body.panel-collapsed .hud-tr { right: 16px; }
-  #wheel, body.panel-collapsed #wheel { height: min(54vh, 96vw); min-height: 300px; }
+  .tab { font-size: 11px; letter-spacing: 0; padding: 11px 1px; min-width: 0; }
+  /* panes flow with the page instead of filling a fixed panel */
+  .tabpanes { flex: none; position: static; overflow: visible; }
+  .tabpane { position: static; display: none; overflow: visible; }
+  .tabpane.active { display: block; }
+
+  #timebar { position: sticky; bottom: 0; z-index: 20; padding: 7px 8px; gap: 8px 10px; }
+}
+
+/* ---------------- phones ---------------- */
+@media (max-width: 760px) {
+  .brand-sub { display: none; }
+  .brand-text h1 { font-size: 16px; letter-spacing: 2px; }
+  .brand-mark { font-size: 18px; }
+  .modes { margin-left: 0; }
+  .mode-btn { padding: 5px 10px; font-size: 12px; }
+  .top-right { margin-left: auto; }
+  .chip { padding: 4px 10px; font-size: 11px; }
+  .chip-loc #locLabel { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #modeInfo .mi-title { font-size: 14px; }
+
+  /* 16px inputs stop iOS Safari from zooming the page on focus */
+  input[type="text"], input[type="number"], input[type="date"], input[type="time"],
+  input[type="password"], input[type="datetime-local"], select, textarea { font-size: 16px; }
+
+  /* time bar: compact to ~3 rows — drop year/month steps (scrub + play cover them) */
+  .btn.step[data-step="-31557600"], .btn.step[data-step="31557600"],
+  .btn.step[data-step="-2629800"], .btn.step[data-step="2629800"] { display: none; }
+  #timebar { gap: 6px 8px; padding: 6px 8px; }
+  #timebar .btn { padding: 6px 8px; }
+  #timebar select { padding: 6px 6px; }
+  .tb-datetime input { width: 150px; }
+  .tb-datetime select { max-width: 96px; }
+  .tb-play select { max-width: 118px; }
+  .tb-scrub { width: 100%; min-width: 0; }
+
+  .pc-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .pos-row { grid-template-columns: 26px 1fr 106px 30px 70px; gap: 4px; }
+  .asp-row { grid-template-columns: 22px 76px 22px 76px 1fr 58px; }
+  .tabpane { padding: 12px 10px; }
+  .modal-card { padding: 14px; }
+  .loc-manual { flex-wrap: wrap; }
 }
