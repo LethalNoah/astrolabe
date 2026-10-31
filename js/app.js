@@ -599,7 +599,7 @@
       <label>Birth date<input type="date" id="pfDate" value="${ep.y ? `${String(ep.y).padStart(4, '0')}-${String(ep.mo).padStart(2, '0')}-${String(ep.d).padStart(2, '0')}` : ''}"></label>
       <label>Birth time — blank if unknown <input type="time" id="pfTime" value="${ep.timeKnown === false ? '' : (ep.hh !== undefined ? `${String(ep.hh).padStart(2, '0')}:${String(ep.mm).padStart(2, '0')}` : '')}"></label>
       <label class="full">Timezone of birth<select id="pfTz"></select></label>
-      <label class="full">Birthplace search<input type="text" id="pfPlace" value="${esc(ep.place || '')}" placeholder="City (press Enter to search — needs internet)"></label>
+      <label class="full">Birthplace search<input type="text" id="pfPlace" enterkeyhint="search" value="${esc(ep.place || '')}" placeholder="City (press Enter to search — needs internet)"></label>
       <div class="full loc-results" id="pfResults"></div>
       <label>Latitude<input type="number" id="pfLat" step="0.0001" value="${ep.lat !== undefined ? ep.lat : ''}"></label>
       <label>Longitude<input type="number" id="pfLon" step="0.0001" value="${ep.lon !== undefined ? ep.lon : ''}"></label>
