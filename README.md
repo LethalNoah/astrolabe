@@ -54,7 +54,7 @@ Whole-sign houses (default), day/night **sect** with benefic/malefic roles, esse
   - **Period** — a forecast across any window up to a year, for **the world** (ingresses, stations, exact aspects, lunations) or **for a person** (adds every transiting aspect that perfects against their natal chart in the window),
   - **Synastry** — two people compared.
 - **Compose** builds a reading instantly and offline from the computed chart.
-- **✦ AI reading** sends the chart data to your chosen AI provider and streams back a woven narrative in your chosen voice. **Claude (Anthropic) is the default**; ⚙ Settings lets you switch to ChatGPT (OpenAI) or Gemini (Google) instead — each provider keeps its own key and model choice (curated list plus a custom-model field), and requests go straight from your browser to that provider.
+- **✦ AI reading** sends the chart data to your chosen AI provider and streams back a woven narrative in your chosen voice. **Claude (Anthropic) is the default**; ⚙ Settings lets you switch to ChatGPT (OpenAI), Gemini (Google), or OpenRouter instead — each provider keeps its own key and model choice (curated list plus a custom-model field), and requests go straight from your browser to that provider.
 - **Ask the chart** — type a free-form question and get a focused answer grounded in the selected context: ask this moment's sky whether tonight suits a hard conversation, ask a birth chart about work, ask a period "when in this window should I move?", or ask a synastry pair where they'll clash. Follow-up questions continue the conversation, pinned to the chart snapshot you started with; switching context starts a fresh thread.
 
 ## Privacy & publishing to GitHub
@@ -62,7 +62,7 @@ Whole-sign houses (default), day/night **sect** with benefic/malefic roles, esse
 The project folder contains **only code**. Everything personal lives in your browser's localStorage, never in files:
 
 - saved people (`astrolabe.people.v1`)
-- your Anthropic API key & model choice (`astrolabe.api.v1`)
+- your AI provider API keys & model choices (`astrolabe.api.v1`)
 - chart location and settings
 
 So pushing this folder to GitHub publishes none of it. Two habits keep it that way: don't save a **People → Export** JSON backup inside the project folder (the included `.gitignore` catches the default filename anyway), and never paste your API key into any file. The app never asks for browser location permission — location is typed or searched by city name only.
@@ -77,7 +77,7 @@ js/engine.js          ephemeris wrapper, houses/angles, aspects, patterns, event
 js/wheel.js           SVG wheel renderer (single + biwheel)
 js/interpret.js       info panels + offline composed readings
 js/people.js          saved people (localStorage)
-js/api.js             Claude API readings (official SDK, browser build)
+js/api.js             AI provider API readings and streaming
 js/app.js             state, time machine, panels, wiring
 js/vendor/            astronomy-engine + @anthropic-ai/sdk bundles
 tools/dev-server.js   optional static server
