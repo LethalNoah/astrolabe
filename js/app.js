@@ -359,7 +359,7 @@
     <div class="ask-row"><input type="text" id="askInput" placeholder="${askPh}"><button class="btn btn-gold" id="btnAsk">Ask</button></div>
     <div id="askThread"></div>
     <div class="reading-out" id="readingOut" style="display:none"></div>
-    <p class="ai-note">“Compose” builds a reading instantly from the computed chart, fully offline. “AI reading” and “Ask the chart” send the chart data to your chosen AI provider — Claude by default; OpenAI or Gemini selectable in ⚙ Settings (needs that provider's API key). Readings are for reflection and entertainment.</p>`;
+    <p class="ai-note">“Compose” builds a reading instantly from the computed chart, fully offline. “AI reading” and “Ask the chart” send the chart data to your chosen AI provider — Claude by default; OpenAI, Gemini, or OpenRouter selectable in ⚙ Settings (needs that provider's API key). Readings are for reflection and entertainment.</p>`;
     el.innerHTML = h;
     // preserve prior reading html
     if (el.dataset.readingHtml) {

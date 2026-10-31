@@ -1,9 +1,10 @@
 /* ============================================================
-   API — AI-woven readings via the Anthropic SDK (browser build)
+   API — AI-woven readings via browser APIs
    The offline composed readings work without this; an API key
-   (stored locally, sent only to Anthropic) unlocks narrative
-   readings. Uses the official @anthropic-ai/sdk bundled in
-   js/vendor/anthropic.browser.js (global AnthropicSDK).
+   (stored locally, sent only to the selected provider) unlocks
+   narrative readings. Claude uses the official SDK bundled in
+   js/vendor/anthropic.browser.js (global AnthropicSDK); the other
+   providers use their browser-compatible REST streaming APIs.
    ============================================================ */
 (function (g) {
   'use strict';
@@ -37,15 +38,28 @@
         { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
       ],
     },
+    openrouter: {
+      label: 'OpenRouter', short: 'OpenRouter',
+      keyHint: 'sk-or-… from openrouter.ai/settings/keys',
+      models: [
+        { id: 'openai/gpt-5.1', label: 'OpenAI GPT-5.1' },
+        { id: 'anthropic/claude-sonnet-4.5', label: 'Anthropic Claude Sonnet 4.5' },
+        { id: 'google/gemini-2.5-pro', label: 'Google Gemini 2.5 Pro' },
+        { id: 'openrouter/free', label: 'OpenRouter Free (auto-selected)' },
+      ],
+    },
   };
-  const DEFAULT_MODELS = { anthropic: 'claude-opus-5', openai: 'gpt-5.1', gemini: 'gemini-2.5-pro' };
+  const DEFAULT_MODELS = {
+    anthropic: 'claude-opus-5', openai: 'gpt-5.1', gemini: 'gemini-2.5-pro',
+    openrouter: 'openai/gpt-5.1',
+  };
 
   function getSettings() {
     let s;
     try { s = JSON.parse(localStorage.getItem(SKEY) || '{}'); } catch { s = {}; }
     const out = {
       provider: PROVIDERS[s.provider] ? s.provider : 'anthropic',
-      keys: Object.assign({ anthropic: '', openai: '', gemini: '' }, s.keys),
+      keys: Object.assign({ anthropic: '', openai: '', gemini: '', openrouter: '' }, s.keys),
       models: Object.assign({}, DEFAULT_MODELS, s.models),
     };
     // migrate the old single-provider shape {apiKey, model}
@@ -149,7 +163,7 @@ Rules:
 
   // ---------- streaming core (shared by readings and Q&A) ----------
   // Dispatches to the configured provider. Claude is the default and uses the
-  // official Anthropic SDK; OpenAI and Gemini use their REST SSE endpoints.
+  // official Anthropic SDK; the other providers use REST SSE endpoints.
   async function streamCompletion(o) {
     const s = getSettings();
     const key = s.keys[s.provider];
@@ -157,6 +171,7 @@ Rules:
     try {
       if (s.provider === 'openai') return await streamOpenAI(o, key, s.models.openai);
       if (s.provider === 'gemini') return await streamGemini(o, key, s.models.gemini);
+      if (s.provider === 'openrouter') return await streamOpenRouter(o, key, s.models.openrouter);
       return await streamAnthropic(o, key, s.models.anthropic);
     } catch (err) {
       o.onError(`Request failed (${PROVIDERS[s.provider].short}): ` + (err && err.message ? err.message : err));
@@ -279,6 +294,34 @@ Rules:
       if ((cand && cand.finishReason === 'SAFETY') || (j.promptFeedback && j.promptFeedback.blockReason)) blocked = true;
     });
     if (blocked && !full) { onError('The model declined this request.'); return; }
+    onDone(full);
+  }
+
+  async function streamOpenRouter({ system, messages, onDelta, onDone, onError }, key, model) {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+        'HTTP-Referer': window.location.origin,
+        'X-OpenRouter-Title': 'Astrolabe',
+      },
+      body: JSON.stringify({
+        model, stream: true, max_tokens: 8000,
+        messages: [{ role: 'system', content: system }].concat(messages),
+      }),
+    });
+    if (!res.ok) { onError(httpErrMsg('OpenRouter', res.status, await res.text().catch(() => ''))); return; }
+    let full = '', filtered = false;
+    await readSSE(res, data => {
+      if (data === '[DONE]') return;
+      const j = JSON.parse(data);
+      const ch = j.choices && j.choices[0];
+      if (!ch) return;
+      if (ch.delta && ch.delta.content) { full += ch.delta.content; onDelta(full); }
+      if (ch.finish_reason === 'content_filter') filtered = true;
+    });
+    if (filtered && !full) { onError('The model declined this request.'); return; }
     onDone(full);
   }
 
